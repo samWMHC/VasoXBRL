@@ -1,24 +1,15 @@
 {
   "name": "vasoxbrl",
-  "version": "0.1.0",
-  "description": "Tools for fetching and parsing SEC XBRL filings",
+  "version": "0.2.0",
+  "description": "Fetch SEC EDGAR filings — zero dependencies",
   "type": "module",
-  "main": "src/index.js",
   "bin": {
     "vasoxbrl": "src/cli.js"
   },
   "scripts": {
     "start": "node src/cli.js",
-    "test": "node --test test/**/*.test.js",
-    "lint": "eslint src/"
+    "test": "node --test test/**/*.test.js"
   },
   "keywords": ["xbrl", "sec", "edgar", "filings", "financial"],
-  "license": "MIT",
-  "dependencies": {
-    "fast-xml-parser": "^4.5.0",
-    "commander": "^12.1.0"
-  },
-  "devDependencies": {
-    "eslint": "^9.0.0"
-  }
+  "license": "MIT"
 }
