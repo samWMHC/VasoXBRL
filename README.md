@@ -22,17 +22,27 @@ python scripts/build_financials.py
 ```
 
 Reads `cache/companyfacts_0000839087.json` and writes
-`output/VASO_financials.xlsx` with five sheets:
+`output/VASO_financials.xlsx` with six sheets:
 
-| Sheet | Contents |
+| Sheet | Tags |
 |---|---|
-| IncomeStatement | Revenues, CostOfRevenue, GrossProfit, OperatingIncomeLoss, NetIncomeLoss |
-| BalanceSheet | Assets, Liabilities, StockholdersEquity |
-| CashFlow | NetCashProvidedByUsedInOperatingActivities, PaymentsOfDividends |
-| Shares | WeightedAverageNumberOfDilutedSharesOutstanding |
+| IncomeStatement | Revenues, CostOfRevenue, GrossProfit, R&D Expense, SG&A Expense, OperatingExpenses, OperatingIncomeLoss, InterestExpense, NetIncomeLoss |
+| BalanceSheet | CashAndCashEquivalents, Assets, Liabilities, LongTermDebt, ShortTermBorrowings, StockholdersEquity |
+| CashFlow | OperatingCashFlow, DepreciationAndAmortization, ShareBasedCompensation, CapitalExpenditures, PaymentsOfDividends |
+| Shares | SharesOutstanding (end-of-period), WeightedAvgSharesDiluted, EarningsPerShareBasic, EarningsPerShareDiluted |
+| Segments_Operational | Dimensional/segment facts if present (checked automatically) |
 | RawFacts | Every extracted data point in long-form |
 
-Quarters appear as columns (e.g. `2023-Q1`, `2023-Q2`, …, `2023-FY`).
+Each tag resolves to the first available US-GAAP concept from a prioritized
+fallback list (e.g. Revenues falls back to
+RevenueFromContractWithCustomerExcludingAssessedTax, then SalesRevenueNet).
+
+### Excel formatting
+
+- Frozen header row + tag column on all pivoted sheets
+- Number formats: USD `#,##0` · Shares `#,##0` · Per-share `0.00`
+- Auto-sized column widths
+- Header rows with units and a note that values are as-filed XBRL facts
 
 ## Project Structure
 
