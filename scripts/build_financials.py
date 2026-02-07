@@ -9,7 +9,10 @@ import pathlib
 import sys
 
 import pandas as pd
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
+
+from parse_statements import build_statement_pivot, process_filings
 
 # ---------------------------------------------------------------------------
 # Config
@@ -17,6 +20,8 @@ from openpyxl.utils import get_column_letter
 
 INPUT = pathlib.Path("cache/companyfacts_0000839087.json")
 OUTPUT = pathlib.Path("output/VASO_financials.xlsx")
+CIK_PADDED = INPUT.stem.split("_")[1]  # "0000839087"
+CACHE_DIR = pathlib.Path("cache")
 
 # Each entry: (display_tag, sheet, unit_class, [primary_tag, ...fallbacks])
 # unit_class: "usd", "shares", "per_share"
@@ -362,6 +367,85 @@ def format_raw_sheet(ws, num_rows: int, num_cols: int):
 
 
 # ---------------------------------------------------------------------------
+# Statement-level sheet helpers  (BalanceSheet_Full / IncomeStatement_Full)
+# ---------------------------------------------------------------------------
+
+STMT_HEADER_NOTE = (
+    "Presentation-ordered line items extracted from individual 10-Q/10-K "
+    "XBRL filings (R-file reports).  Values are as-filed."
+)
+
+
+def write_statement_sheet(
+    writer,
+    sheet_name: str,
+    pivot_rows: list[dict],
+    row_meta: list[dict],
+):
+    """Write a presentation-ordered statement sheet with formatting."""
+    if not pivot_rows:
+        pd.DataFrame({"note": [f"No {sheet_name} data found"]}).to_excel(
+            writer, sheet_name=sheet_name, index=False
+        )
+        return 0
+
+    # Build DataFrame from pivot_rows  (label + period columns)
+    df = pd.DataFrame(pivot_rows)
+    period_cols = [c for c in df.columns if c not in ("label", "element")]
+    period_cols.sort()
+
+    display = df[["label"] + period_cols].copy()
+
+    # Indent labels by level for visual hierarchy
+    for i, rm in enumerate(row_meta):
+        indent = "  " * max(rm["level"] - 2, 0)
+        display.loc[i, "label"] = indent + display.loc[i, "label"]
+
+    # Create worksheet with header rows
+    ws = writer.book.create_sheet(sheet_name)
+    writer.sheets[sheet_name] = ws
+    ws.cell(row=1, column=1, value=STMT_HEADER_NOTE)
+    ws.cell(row=2, column=1, value="Units: USD")
+
+    display.to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
+
+    num_periods = len(period_cols)
+    num_rows = len(display)
+
+    # Freeze panes: below row 3 (headers), right of column A (labels)
+    ws.freeze_panes = "B4"
+
+    # Number format + bold totals
+    bold_font = Font(bold=True)
+    for r_idx in range(num_rows):
+        rm = row_meta[r_idx]
+        is_total = rm["is_total"]
+        for c_idx in range(num_periods):
+            cell = ws.cell(row=4 + r_idx, column=2 + c_idx)
+            cell.number_format = "#,##0"
+            if is_total:
+                cell.font = bold_font
+        # Bold the label cell for totals
+        if is_total:
+            ws.cell(row=4 + r_idx, column=1).font = bold_font
+
+    # Auto-width
+    for col_idx in range(1, 2 + num_periods):
+        col_letter = get_column_letter(col_idx)
+        max_len = 0
+        for row in ws.iter_rows(
+            min_row=1, max_row=3 + num_rows,
+            min_col=col_idx, max_col=col_idx,
+        ):
+            for cell in row:
+                if cell.value is not None:
+                    max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = min(max_len + 3, 45)
+
+    return num_rows
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -429,6 +513,54 @@ def main():
         ws = writer.sheets["RawFacts"]
         format_raw_sheet(ws, len(df), len(df.columns))
         print(f"  RawFacts: {len(df)} rows")
+
+        # ──────────────────────────────────────────────────────────────
+        # Filing-level statement sheets  (require `node src/cli.js filings`)
+        # ──────────────────────────────────────────────────────────────
+        filings_dir = CACHE_DIR / "filings" / CIK_PADDED
+        if filings_dir.exists():
+            stmt_data = process_filings(CACHE_DIR, CIK_PADDED)
+
+            # ── BalanceSheet_Full ──
+            bs_pivot, bs_raw, bs_meta = build_statement_pivot(
+                stmt_data["balance_sheet"]
+            )
+            n = write_statement_sheet(
+                writer, "BalanceSheet_Full", bs_pivot, bs_meta
+            )
+            print(f"  BalanceSheet_Full: {n} line items")
+
+            # ── IncomeStatement_Full ──
+            is_pivot, is_raw, is_meta = build_statement_pivot(
+                stmt_data["income_statement"]
+            )
+            n = write_statement_sheet(
+                writer, "IncomeStatement_Full", is_pivot, is_meta
+            )
+            print(f"  IncomeStatement_Full: {n} line items")
+
+            # ── RawStatementFacts ──
+            all_raw = bs_raw + is_raw
+            if all_raw:
+                raw_df = pd.DataFrame(all_raw)
+                raw_df.to_excel(
+                    writer, sheet_name="RawStatementFacts", index=False
+                )
+                ws = writer.sheets["RawStatementFacts"]
+                format_raw_sheet(ws, len(raw_df), len(raw_df.columns))
+                print(f"  RawStatementFacts: {len(raw_df)} rows")
+            else:
+                pd.DataFrame(
+                    {"note": ["No statement-level facts extracted"]}
+                ).to_excel(
+                    writer, sheet_name="RawStatementFacts", index=False
+                )
+                print("  RawStatementFacts: (empty)")
+        else:
+            print(
+                "\n  (Skipping filing-level sheets — run "
+                "'node src/cli.js filings 839087' first)"
+            )
 
     print(f"\nSaved to {OUTPUT}")
 

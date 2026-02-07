@@ -2,56 +2,77 @@
 
 Fetch SEC EDGAR filings and build quarterly financial spreadsheets.
 
-## 1. Fetch data (Node 18+, zero dependencies)
-
-```bash
-# Fetch company facts for VASO (CIK 839087)
-node src/cli.js companyfacts 839087
-
-# Fetch recent submissions
-node src/cli.js submissions 839087
-```
-
-Responses are cached as JSON under `./cache/`.
-
-## 2. Build Excel workbook (Python)
+## Quick start
 
 ```bash
 pip install -r requirements.txt
+
+# Step 1 — fetch aggregate company facts
+node src/cli.js companyfacts 839087
+
+# Step 2 — download individual 10-Q/10-K XBRL (last 10 years)
+node src/cli.js filings 839087
+
+# Step 3 — build Excel workbook
 python scripts/build_financials.py
 ```
 
-Reads `cache/companyfacts_0000839087.json` and writes
-`output/VASO_financials.xlsx` with six sheets:
+Output: `output/VASO_financials.xlsx`
 
-| Sheet | Tags |
+## CLI commands (Node 18+, zero dependencies)
+
+```bash
+node src/cli.js submissions  <cik>   # fetch recent submissions JSON
+node src/cli.js companyfacts <cik>   # fetch aggregated XBRL company facts
+node src/cli.js filings      <cik>   # download 10-Q/10-K FilingSummary + R-files
+```
+
+All responses are cached under `./cache/`. The `filings` command creates
+`cache/filings/{cik}/{accession}/` with `FilingSummary.xml`, `R*.xml`
+report files, and a `meta.json` for each filing.
+
+## Excel workbook sheets
+
+### Companyfacts-based (from `companyfacts` command)
+
+| Sheet | Contents |
 |---|---|
-| IncomeStatement | Revenues, CostOfRevenue, GrossProfit, R&D Expense, SG&A Expense, OperatingExpenses, OperatingIncomeLoss, InterestExpense, NetIncomeLoss |
+| IncomeStatement | Revenues, CostOfRevenue, GrossProfit, R&D, SG&A, OperatingExpenses, OperatingIncomeLoss, InterestExpense, NetIncomeLoss |
 | BalanceSheet | CashAndCashEquivalents, Assets, Liabilities, LongTermDebt, ShortTermBorrowings, StockholdersEquity |
-| CashFlow | OperatingCashFlow, DepreciationAndAmortization, ShareBasedCompensation, CapitalExpenditures, PaymentsOfDividends |
-| Shares | SharesOutstanding (end-of-period), WeightedAvgSharesDiluted, EarningsPerShareBasic, EarningsPerShareDiluted |
-| Segments_Operational | Dimensional/segment facts if present (checked automatically) |
-| RawFacts | Every extracted data point in long-form |
+| CashFlow | OperatingCashFlow, D&A, ShareBasedCompensation, CapEx, PaymentsOfDividends |
+| Shares | SharesOutstanding, WeightedAvgSharesDiluted, EPS Basic, EPS Diluted |
+| Segments_Operational | Dimensional/segment facts if present |
+| RawFacts | All companyfacts data points in long-form |
 
-Each tag resolves to the first available US-GAAP concept from a prioritized
-fallback list (e.g. Revenues falls back to
-RevenueFromContractWithCustomerExcludingAssessedTax, then SalesRevenueNet).
+### Filing-level (from `filings` command)
+
+| Sheet | Contents |
+|---|---|
+| BalanceSheet_Full | Every line item from the Balance Sheet per the filing's presentation hierarchy (section headers, subtotals, indentation preserved) |
+| IncomeStatement_Full | Every line item from the Income Statement / Operations statement |
+| RawStatementFacts | Long-form: statement, label, element/tag, value, currency, periodEnd, accession, filingDate, form |
+
+Filing-level sheets use the SEC XBRL viewer's R-file reports. The row
+order matches the most recently filed statement; values are deduplicated
+(newest filing wins for each period).
 
 ### Excel formatting
 
-- Frozen header row + tag column on all pivoted sheets
-- Number formats: USD `#,##0` · Shares `#,##0` · Per-share `0.00`
+- Frozen header row + tag/label column on all wide sheets
+- Number formats: USD `#,##0` / Shares `#,##0` / Per-share `0.00`
+- Bold total rows on statement sheets
 - Auto-sized column widths
-- Header rows with units and a note that values are as-filed XBRL facts
+- Header rows noting units and that values are as-filed XBRL facts
 
-## Project Structure
+## Project structure
 
 ```
 src/
-  cli.js                       Node CLI — fetch EDGAR JSON
+  cli.js                       Node CLI — fetch & cache EDGAR data
 scripts/
-  build_financials.py          Python — JSON → Excel
+  build_financials.py          Python — companyfacts + filings → Excel
+  parse_statements.py          Python — parse FilingSummary.xml + R*.xml
 requirements.txt               pandas + openpyxl
-cache/                         Cached JSON responses (git-ignored)
+cache/                         Cached data (git-ignored)
 output/                        Generated Excel files (git-ignored)
 ```
